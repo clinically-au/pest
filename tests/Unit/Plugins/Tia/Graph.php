@@ -264,6 +264,66 @@ describe('Livewire component views', function (): void {
         expect($graph->affected([$viewPath]))->toBe(['tests/Feature/CreatePostTest.php']);
     });
 
+    it('maps a new Blade dependency through a generated Livewire ancestor', function (string $parentPath, string $sourcePath, string $reference, string $generated): void {
+        $dependencyPath = 'resources/views/components/new-card.blade.php';
+        mkdir(dirname($this->projectRoot.'/'.$parentPath), 0755, true);
+        if (! is_dir($this->projectRoot.'/resources/views/components')) {
+            mkdir($this->projectRoot.'/resources/views/components', 0755, true);
+        }
+        file_put_contents($this->projectRoot.'/'.$parentPath, '<div>'.$reference.'</div>');
+        file_put_contents($this->projectRoot.'/'.$dependencyPath, '<div>New card</div>');
+        if (! str_ends_with($sourcePath, '.blade.php')) {
+            file_put_contents($this->projectRoot.'/'.$sourcePath.'/orders.php', '<?php');
+        }
+        $hash = substr(md5(DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $sourcePath)), 0, 8);
+
+        $graph = new Graph($this->projectRoot);
+        $graph->link('tests/Feature/OrdersTest.php', 'storage/framework/views/test_1/livewire/'.str_replace('{hash}', $hash, $generated));
+        $graph->link('tests/Feature/OtherOrdersTest.php', 'storage/framework/views/test_2/livewire/views/'.$hash.'.blade.php');
+        $graph->link('tests/Feature/UnrelatedTest.php', 'app/Unrelated.php');
+
+        expect($graph->affected([$dependencyPath]))
+            ->toBe(['tests/Feature/OrdersTest.php', 'tests/Feature/OtherOrdersTest.php']);
+    })->with([
+        'SFC include' => ['resources/views/pages/orders.blade.php', 'resources/views/pages/orders.blade.php', "@include('components.new-card')", 'views/{hash}.blade.php'],
+        'SFC anonymous component' => ['resources/views/pages/orders.blade.php', 'resources/views/pages/orders.blade.php', '<x-new-card />', 'views/{hash}.blade.php'],
+        'SFC generated class' => ['resources/views/pages/⚡orders.blade.php', 'resources/views/pages/⚡orders.blade.php', '<x-new-card />', 'classes/{hash}.php'],
+        'MFC include' => ['resources/views/pages/⚡orders/orders.blade.php', 'resources/views/pages/⚡orders', "@include('components.new-card')", 'views/{hash}.blade.php'],
+    ]);
+
+    it('combines direct and generated ancestors through nested Blade includes', function (): void {
+        mkdir($this->projectRoot.'/resources/views/pages', 0755, true);
+        mkdir($this->projectRoot.'/resources/views/partials', 0755, true);
+        file_put_contents($this->projectRoot.'/resources/views/pages/orders.blade.php', "@include('partials.wrapper')");
+        file_put_contents($this->projectRoot.'/resources/views/page.blade.php', "@include('partials.card')");
+        file_put_contents($this->projectRoot.'/resources/views/partials/wrapper.blade.php', "@include('partials.card')");
+        file_put_contents($this->projectRoot.'/resources/views/partials/card.blade.php', '<div>New card</div>');
+        $hash = substr(md5(DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, 'resources/views/pages/orders.blade.php')), 0, 8);
+
+        $graph = new Graph($this->projectRoot);
+        $graph->link('tests/Feature/OrdersTest.php', 'storage/framework/views/test_1/livewire/views/'.$hash.'.blade.php');
+        $graph->link('tests/Feature/PageTest.php', 'resources/views/page.blade.php');
+        $graph->link('tests/Feature/UnrelatedTest.php', 'app/Unrelated.php');
+
+        expect($graph->affected(['resources/views/partials/card.blade.php']))
+            ->toBe(['tests/Feature/OrdersTest.php', 'tests/Feature/PageTest.php']);
+    });
+
+    it('preserves the fallback for an unresolved dynamic Blade include', function (): void {
+        mkdir($this->projectRoot.'/resources/views/pages', 0755, true);
+        mkdir($this->projectRoot.'/resources/views/partials', 0755, true);
+        file_put_contents($this->projectRoot.'/resources/views/pages/orders.blade.php', '@include($partial)');
+        file_put_contents($this->projectRoot.'/resources/views/partials/card.blade.php', '<div>New card</div>');
+        $hash = substr(md5(DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, 'resources/views/pages/orders.blade.php')), 0, 8);
+
+        $graph = new Graph($this->projectRoot);
+        $graph->link('tests/Feature/OrdersTest.php', 'storage/framework/views/test_1/livewire/views/'.$hash.'.blade.php');
+        $graph->link('tests/Feature/UnrelatedTest.php', 'app/Unrelated.php');
+
+        expect($graph->affected(['resources/views/partials/card.blade.php']))
+            ->toBe(['tests/Feature/OrdersTest.php', 'tests/Feature/UnrelatedTest.php']);
+    });
+
     it('falls back to watch patterns when no generated view matches', function (): void {
         $ordersPath = 'resources/views/components/orders.blade.php';
         $ordersHash = substr(md5(DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $ordersPath)), 0, 8);

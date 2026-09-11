@@ -1326,11 +1326,9 @@ final class Graph
             }
         }
 
-        if ($ancestorIds === []) {
-            return [];
-        }
-
         $affected = [];
+        $this->applyLivewireComponentChanges($ancestors, $affected);
+
         foreach ($this->edges as $testFile => $ids) {
             foreach ($ids as $id) {
                 if (isset($ancestorIds[$id])) {
