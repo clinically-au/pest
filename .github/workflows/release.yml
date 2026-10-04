@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*', '[0-9]*']
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    uses: ./.github/workflows/static.yml
+
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  publish:
+    needs: [static, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Package Composer archive
+        run: git archive --format=zip --prefix=package/ --output=composer.zip HEAD
+
+      - name: Retain Composer archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-${{ github.ref_name }}
+          path: composer.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish Composer archive
+        env:
+          PACKISTRY_TOKEN: ${{ secrets.PACKISTRY_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          PACKAGE_NAME=$(jq --raw-output '.name' composer.json)
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 --max-time 120 \
+            --header "Authorization: Bearer $PACKISTRY_TOKEN" \
+            --form "file=@composer.zip;type=application/zip" \
+            --form-string "version=$VERSION" \
+            "https://repo.clindev.au/$PACKAGE_NAME"
